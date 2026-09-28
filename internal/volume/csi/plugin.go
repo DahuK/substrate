@@ -56,6 +56,10 @@ var defaultTLSPaths = tlsPaths{
 type Plugin struct {
 	client           *Client
 	stagingDirPrefix string
+	protectedMu      sync.Mutex
+	protectedMounts  map[*AuthorizedMount]protectedMount
+	protectedHandles map[[2]string]struct{}
+	protectedPaths   protectedPathIndex
 }
 
 // Ensure Plugin implements volume.VolumePluginControlPlane and VolumePluginWorkerPlane
@@ -174,26 +178,51 @@ func (p *Plugin) DetachVolume(ctx context.Context, volumeID string, node string)
 // MountVolume maps to CSI Node NodePublishVolume.
 // It also handles NodeStageVolume staging if required by the driver.
 func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath string, volumeContext map[string]string) error {
+	return p.mountVolume(ctx, volumeID, targetPath, volumeContext, mountOptions{stagingPath: filepath.Join(p.stagingDirPrefix, volumeID)})
+}
+
+type mountOptions struct {
+	stagingPath string
+	readonly    bool
+	protected   bool
+	prepare     func() (map[string]string, error)
+}
+
+func (p *Plugin) mountVolume(ctx context.Context, volumeID, targetPath string, volumeContext map[string]string, options mountOptions) error {
 	// 1. Stage the volume
-	stagingPath := filepath.Join(p.stagingDirPrefix, volumeID)
+	stagingPath := options.stagingPath
 	if err := os.MkdirAll(stagingPath, 0750); err != nil {
+		if options.protected {
+			return csiOperationError("create staging directory", err, true)
+		}
 		return fmt.Errorf("failed to create staging directory %q: %w", stagingPath, err)
+	}
+	capability := getStandardCapabilities()[0]
+	if options.readonly {
+		capability.AccessMode.Mode = csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY
 	}
 
 	stageReq := &csi.NodeStageVolumeRequest{
 		VolumeId:          volumeID,
 		StagingTargetPath: stagingPath,
-		VolumeCapability:  getStandardCapabilities()[0], // Use primary capability
+		VolumeCapability:  capability,
 		VolumeContext:     volumeContext,
+	}
+	if options.prepare != nil {
+		secrets, err := options.prepare()
+		if err != nil {
+			return err
+		}
+		stageReq.Secrets = secrets
 	}
 
 	_, err := p.client.NodeStageVolume(ctx, stageReq)
 	if err != nil {
-		if status.Code(err) == codes.Unimplemented {
+		if status.Code(err) == codes.Unimplemented && !options.protected {
 			slog.WarnContext(ctx, "CSI NodeStageVolume is unimplemented by driver; skipping staging", slog.String("volume_id", volumeID))
 			stagingPath = ""
 		} else {
-			return fmt.Errorf("CSI NodeStageVolume failed: %w", err)
+			return csiOperationError("NodeStageVolume", err, options.protected)
 		}
 	}
 
@@ -201,17 +230,24 @@ func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath st
 	req := &csi.NodePublishVolumeRequest{
 		VolumeId:         volumeID,
 		TargetPath:       targetPath,
-		VolumeCapability: getStandardCapabilities()[0],
-		Readonly:         false,
+		VolumeCapability: capability,
+		Readonly:         options.readonly,
 		VolumeContext:    volumeContext,
 	}
 	if stagingPath != "" {
 		req.StagingTargetPath = stagingPath
 	}
+	if options.prepare != nil {
+		secrets, err := options.prepare()
+		if err != nil {
+			return err
+		}
+		req.Secrets = secrets
+	}
 
 	_, err = p.client.NodePublishVolume(ctx, req)
 	if err != nil {
-		return fmt.Errorf("CSI NodePublishVolume failed: %w", err)
+		return csiOperationError("NodePublishVolume", err, options.protected)
 	}
 	return nil
 }
@@ -219,6 +255,10 @@ func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath st
 // UnmountVolume maps to CSI Node NodeUnpublishVolume.
 // It also handles NodeUnstageVolume if staging was used.
 func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath string) error {
+	return p.unmountVolume(ctx, volumeID, targetPath, filepath.Join(p.stagingDirPrefix, volumeID), false)
+}
+
+func (p *Plugin) unmountVolume(ctx context.Context, volumeID, targetPath, stagingPath string, protected bool) error {
 	// 1. Unpublish (Unmount) the volume
 	req := &csi.NodeUnpublishVolumeRequest{
 		VolumeId:   volumeID,
@@ -227,11 +267,10 @@ func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath 
 
 	_, err := p.client.NodeUnpublishVolume(ctx, req)
 	if err != nil {
-		return fmt.Errorf("CSI NodeUnpublishVolume failed: %w", err)
+		return csiOperationError("NodeUnpublishVolume", err, protected)
 	}
 
 	// 2. Unstage the volume
-	stagingPath := filepath.Join(p.stagingDirPrefix, volumeID)
 	unstageReq := &csi.NodeUnstageVolumeRequest{
 		VolumeId:          volumeID,
 		StagingTargetPath: stagingPath,
@@ -239,15 +278,18 @@ func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath 
 
 	_, err = p.client.NodeUnstageVolume(ctx, unstageReq)
 	if err != nil {
-		if status.Code(err) == codes.Unimplemented {
+		if status.Code(err) == codes.Unimplemented && !protected {
 			slog.WarnContext(ctx, "CSI NodeUnstageVolume is unimplemented by driver; skipping unstaging", slog.String("volume_id", volumeID))
 		} else {
-			return fmt.Errorf("CSI NodeUnstageVolume failed: %w", err)
+			return csiOperationError("NodeUnstageVolume", err, protected)
 		}
 	}
 
 	// Clean up staging directory
 	if err := os.Remove(stagingPath); err != nil && !os.IsNotExist(err) {
+		if protected {
+			return csiOperationError("remove staging directory", err, true)
+		}
 		slog.WarnContext(ctx, "failed to remove staging directory", slog.String("path", stagingPath), slog.Any("error", err))
 	}
 
