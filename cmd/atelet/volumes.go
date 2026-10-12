@@ -25,38 +25,68 @@ import (
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
 	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/agent-substrate/substrate/internal/volume/csi"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func (s *AteomHerder) mountExternalVolumes(ctx context.Context, actorUID string, volumes []*ateletpb.Volume) error {
+func (s *AteomHerder) mountExternalVolumes(ctx context.Context, owner volumeOwner, volumes []*ateletpb.Volume) (err error) {
+	// A new activation supersedes refreshers an earlier one left behind, and
+	// a volume mounted before a later one failed keeps no refresher.
+	s.volumeCredentials.stopActor(owner.actorUID)
+	defer func() {
+		if err != nil {
+			s.volumeCredentials.stopActor(owner.actorUID)
+		}
+	}()
 	for _, vol := range volumes {
 		ext := vol.GetExternal()
 		if ext == nil {
 			continue
 		}
-		hostPath := ateletpath.VolumeHostPath(actorUID, vol.GetName())
+		hostPath := ateletpath.VolumeHostPath(owner.actorUID, vol.GetName())
 		if err := os.MkdirAll(hostPath, 0o750); err != nil {
 			return fmt.Errorf("failed to create mount point %q: %w", hostPath, err)
 		}
-		slog.InfoContext(ctx, "Mounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath), slog.String("volume_type", ext.GetVolumeType()))
+		slog.InfoContext(ctx, "Mounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath), slog.String("volume_type", ext.GetVolumeType()), slog.Bool("brokered_credentials", ext.GetBrokeredCredentials()))
 		plugin, err := s.getPlugin(ctx, ext.GetVolumeType())
 		if err != nil {
 			return fmt.Errorf("failed to get volume plugin for %q: %w", ext.GetVolumeType(), err)
 		}
-		if err := plugin.MountVolume(ctx, volume.MountVolumeRequest{
+		req := volume.MountVolumeRequest{
 			VolumeID:       ext.GetStorageVolumeId(),
 			TargetPath:     hostPath,
 			VolumeContext:  ext.GetVolumeContext(),
 			PublishContext: ext.GetPublishContext(),
-		}); err != nil {
+		}
+		var creds *ateapipb.MintVolumeCredentialResponse
+		if ext.GetBrokeredCredentials() {
+			// Never fall back to mounting with the driver's own identity.
+			if s.volumeCredentials == nil {
+				return fmt.Errorf("volume %q needs brokered credentials, but atelet cannot mint them", vol.GetName())
+			}
+			creds, err = s.volumeCredentials.mint(ctx, owner, vol.GetName())
+			if err != nil {
+				return fmt.Errorf("failed to mint credentials for volume %q: %w", vol.GetName(), err)
+			}
+			req.Secrets = creds.GetSecrets()
+		}
+		if err := plugin.MountVolume(ctx, req); err != nil {
 			return fmt.Errorf("failed to mount volume %q to %q: %w", ext.GetStorageVolumeId(), hostPath, err)
+		}
+		if creds != nil {
+			s.volumeCredentials.startRefresh(owner, vol.GetName(), creds, func(ctx context.Context, secrets map[string]string) error {
+				refreshed := req
+				refreshed.Secrets = secrets
+				return plugin.MountVolume(ctx, refreshed)
+			})
 		}
 	}
 	return nil
 }
 
 func (s *AteomHerder) unmountExternalVolumes(ctx context.Context, actorUID string, volumes []*ateletpb.Volume) error {
+	s.volumeCredentials.stopActor(actorUID)
 	var errs []error
 	for _, vol := range volumes {
 		ext := vol.GetExternal()

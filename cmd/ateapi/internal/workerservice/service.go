@@ -41,6 +41,10 @@ type Server struct {
 	ateletSPIFFEID string
 
 	actorIDCAPool localca.Pool
+
+	// volumeCredentials issues MintVolumeCredential's credentials. nil
+	// refuses every request.
+	volumeCredentials VolumeCredentialIssuer
 }
 
 // actorSuspender is the in-process slice of the Control service this package

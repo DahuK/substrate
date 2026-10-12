@@ -190,3 +190,62 @@ volumes:
     capacity: 5Gi
     storageClassName: csi-nfs-sc
 ```
+
+## 5. Brokered Volume Credentials (Experimental)
+
+By default a CSI driver reaches storage with its own identity, which can reach
+every volume the driver serves. For object-storage drivers, ate-api can instead
+issue each mounted volume short-lived credentials that reach only that volume.
+
+1. An administrator lists the driver in the file named by ate-api's
+   `--volume-credential-config` flag. Volumes of a listed driver are
+   *brokered*; every other driver keeps its own identity.
+2. When an actor resumes, ate-api marks its brokered volumes in the workload
+   spec. Before mounting one, atelet calls `WorkerService.MintVolumeCredential`
+   with its own client certificate.
+3. ate-api serves the request only if the calling node hosts the worker the
+   actor is assigned to, and the volume is recorded on that actor. It derives
+   the scope (bucket and prefix) from the volume's `volume_context`, which the
+   driver returned at `CreateVolume`, never from the request.
+4. The profile's provider exchanges ate-api's own OIDC token for credentials
+   limited to that scope. atelet passes them to `NodeStageVolume` and
+   `NodePublishVolume` as CSI secrets, and never falls back to mounting without
+   them.
+5. Before the credentials expire atelet mints replacements and mounts the
+   volume again with them, until the volume is unmounted or the actor is no
+   longer assigned to the worker.
+
+Credentials are held in memory only. They are not written to the actor, the
+workload spec, or logs (`MintVolumeCredentialResponse.secrets` is
+`debug_redact`). An atelet restart stops refreshing them; the mounted volume
+keeps its current credentials until they expire.
+
+The only provider today is Alibaba Cloud OSS (`aliyunOSS`). It calls STS
+`AssumeRoleWithOIDC` with a session policy that allows object access under the
+volume's prefix, and listing with `oss:Prefix` limited to it:
+
+```json
+{
+  "profiles": [{
+    "driver": "ossplugin.csi.alibabacloud.com",
+    "bucketContextKey": "bucket",
+    "prefixContextKey": "path",
+    "durationSeconds": 3600,
+    "refreshBeforeSeconds": 900,
+    "aliyunOSS": {
+      "roleArn": "acs:ram::<account>:role/substrate-volumes",
+      "oidcProviderArn": "acs:ram::<account>:oidc-provider/<rrsa-provider>",
+      "oidcTokenFile": "/var/run/secrets/ack.alibabacloud.com/rrsa-tokens/token",
+      "stsEndpoint": "https://sts-vpc.<region>.aliyuncs.com",
+      "bucketOwnerId": "<account>",
+      "secretKeys": {"accessKeyId": "akId", "accessKeySecret": "akSecret", "securityToken": "securityToken"}
+    }
+  }]
+}
+```
+
+`bucketContextKey`, `prefixContextKey` and `secretKeys` are driver-specific:
+set them to the `volume_context` keys and secret names your driver version
+uses. Remounting only refreshes credentials if the driver reloads secrets on a
+repeated `NodePublishVolume`; for a driver that does not, set
+`refreshBeforeSeconds` to 0 and a `durationSeconds` that covers the mount.

@@ -361,6 +361,12 @@ message ExternalVolumeSource {
   // publish_context is the driver's attachment metadata for this node, which
   // the node plugin needs to complete the mount.
   map<string, string> publish_context = 4;
+
+  // brokered_credentials tells atelet to mint scoped credentials for this
+  // volume from the control plane (WorkerService.MintVolumeCredential) and
+  // pass them to the driver as CSI secrets. Set by the control plane from the
+  // administrator's credential profile for the volume's driver.
+  bool brokered_credentials = 5;
 }
 
 message ImageVolumeSource {

@@ -2423,6 +2423,19 @@ service WorkerService {
   // retries a suspend it had already been granted therefore sees a failure
   // rather than a repeat of its success.
   rpc RequestActorSuspend(RequestActorSuspendRequest) returns (RequestActorSuspendResponse);
+
+  // MintVolumeCredential issues short-lived storage credentials for one
+  // external volume of an Actor that the calling Worker hosts, so the node
+  // mounts that volume with access scoped to it rather than with a standing
+  // node or driver identity.
+  //
+  // atelet calls this with its own client certificate before it mounts the
+  // volume, and again before the credentials expire. The control plane serves
+  // it only for an Actor assigned to that Worker, only for a volume recorded on
+  // the Actor, and only when an administrator configured a credential profile
+  // for the volume's driver. The scope comes from the volume's recorded
+  // provisioning context, never from the request.
+  rpc MintVolumeCredential(MintVolumeCredentialRequest) returns (MintVolumeCredentialResponse);
 }
 
 message RegisterWorkerRequest {
@@ -2523,6 +2536,46 @@ message RequestActorSuspendRequest {
 message RequestActorSuspendResponse {
   // The Actor as the suspend workflow left it.
   Actor actor = 1;
+}
+
+message MintVolumeCredentialRequest {
+  // The Worker making the request. atespace is always empty; Workers are
+  // global-scoped. atelet fills this in from its caller's certificate.
+  //
+  // +k8s:required
+  // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
+  ObjectRef worker = 1;
+
+  // The Actor whose volume is mounted. It must be assigned to worker.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 2;
+
+  // The UID of the Actor the Worker believes it is hosting.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
+  string actor_uid = 3;
+
+  // The name of the Actor's external volume, as declared in its template.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  string volume_name = 4;
+}
+
+message MintVolumeCredentialResponse {
+  // CSI secrets for NodeStageVolume and NodePublishVolume, keyed by the names
+  // the volume's driver expects.
+  map<string, string> secrets = 1 [ debug_redact = true ];
+
+  // When the credentials stop working.
+  google.protobuf.Timestamp expire_time = 2;
+
+  // When atelet should mint replacements and republish the volume. Unset when
+  // the volume's profile does not refresh mounted credentials.
+  google.protobuf.Timestamp refresh_time = 3;
 }
 
 // AccessPolicy is an access policy resource nested under a parent resource (or

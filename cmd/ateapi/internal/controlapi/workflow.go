@@ -111,6 +111,15 @@ type ActorWorkflow struct {
 	egressGatewayAddress string
 	pluginRegistry       VolumePluginRegistry
 	snapshotPlugin       objectstorev1.ControlProviderClient
+	// brokeredVolumes reports the drivers whose volumes atelet mounts with
+	// credentials minted through WorkerService. nil brokers none.
+	brokeredVolumes BrokeredVolumeDrivers
+}
+
+// BrokeredVolumeDrivers reports whether volumes of a CSI driver are mounted
+// with brokered credentials. *volumecred.Broker implements it.
+type BrokeredVolumeDrivers interface {
+	Brokered(driver string) bool
 }
 
 // NewActorWorkflow creates a new ActorWorkflow. instruments may be nil.

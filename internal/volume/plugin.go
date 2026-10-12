@@ -65,6 +65,10 @@ type MountVolumeRequest struct {
 	// PublishContext is the metadata returned when the volume was attached to
 	// this node. It is empty for drivers that do not implement attachment.
 	PublishContext map[string]string
+	// Secrets are passed to NodeStageVolume and NodePublishVolume. Mounting
+	// again with new secrets is how brokered credentials are refreshed; the
+	// driver must reload them for that to take effect.
+	Secrets map[string]string
 }
 
 // VolumePluginControlPlane abstracts storage operations performed on the control plane.

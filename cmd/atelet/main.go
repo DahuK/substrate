@@ -379,8 +379,10 @@ func main() {
 
 	ateomFacingSrv := grpc.NewServer(grpc.Creds(credentials.NewTLS(ateomFacingTLS)))
 
+	workerServiceClient := ateapipb.NewWorkerServiceClient(ateapiConn)
+	wmService.volumeCredentials = newVolumeCredentials(workerServiceClient)
 	ateletpb.RegisterAteomSupportServer(ateomFacingSrv, &ateomSupportServer{
-		workers: ateapipb.NewWorkerServiceClient(ateapiConn),
+		workers: workerServiceClient,
 	})
 	go func() {
 		if err := ateomFacingSrv.Serve(ateomFacingLis); err != nil {
@@ -467,6 +469,9 @@ type AteomHerder struct {
 	volumePlugins         map[string]volume.VolumePluginWorkerPlane
 	csiDriverConfigGetter csi.CSIDriverConfigGetter
 	systemInfoVolumes     *systemInfoVolumeRefresher
+	// volumeCredentials mints brokered volume credentials. nil when atelet
+	// has no control-plane connection, which refuses brokered volumes.
+	volumeCredentials *volumeCredentials
 }
 
 var _ ateletpb.AteomHerderServer = (*AteomHerder)(nil)
@@ -521,7 +526,12 @@ func (s *AteomHerder) Run(ctx context.Context, req *ateletpb.RunRequest) (resp *
 		return nil, fmt.Errorf("while resetting actor dirs: %w", err)
 	}
 
-	if err := s.mountExternalVolumes(ctx, actorUID, req.GetSpec().GetVolumes()); err != nil {
+	if err := s.mountExternalVolumes(ctx, volumeOwner{
+		workerPodUID: req.GetWorkerPodUid(),
+		atespace:     req.GetAtespace(),
+		actorName:    req.GetActorName(),
+		actorUID:     actorUID,
+	}, req.GetSpec().GetVolumes()); err != nil {
 		return nil, err
 	}
 
@@ -1086,7 +1096,12 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 	}
 
 	tMount := time.Now()
-	mountErr := s.mountExternalVolumes(ctx, actorUID, req.GetSpec().GetVolumes())
+	mountErr := s.mountExternalVolumes(ctx, volumeOwner{
+		workerPodUID: req.GetWorkerPodUid(),
+		atespace:     req.GetAtespace(),
+		actorName:    req.GetActorName(),
+		actorUID:     actorUID,
+	}, req.GetSpec().GetVolumes())
 	dMount = time.Since(tMount)
 	if mountErr != nil {
 		return nil, mountErr

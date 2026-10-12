@@ -679,6 +679,7 @@ func (w *ActorWorkflow) ensureAteletRestored(ctx context.Context, actorRef resou
 	if err != nil {
 		return tele, err
 	}
+	markBrokeredVolumes(workloadSpec, w.brokeredVolumes)
 	egressGateway := w.egressGateway()
 
 	// The actor's declared limits ride the RPC down to the sandbox so it is sized

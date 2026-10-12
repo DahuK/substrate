@@ -108,6 +108,13 @@ func NewRPCService(
 	return s
 }
 
+// SetBrokeredVolumeDrivers makes resumes mark the external volumes of the
+// drivers it reports as brokered, so atelet mounts them with credentials
+// minted through WorkerService. Call it before serving.
+func (s *RPCService) SetBrokeredVolumeDrivers(drivers BrokeredVolumeDrivers) {
+	s.actorWorkflow.brokeredVolumes = drivers
+}
+
 // serviceStore enumerates the exact storage methods needed by
 // the control API and nothing more.
 type serviceStore interface {

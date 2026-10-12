@@ -1501,8 +1501,13 @@ type ExternalVolumeSource struct {
 	// publish_context is the driver's attachment metadata for this node, which
 	// the node plugin needs to complete the mount.
 	PublishContext map[string]string `protobuf:"bytes,4,rep,name=publish_context,json=publishContext,proto3" json:"publish_context,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// brokered_credentials tells atelet to mint scoped credentials for this
+	// volume from the control plane (WorkerService.MintVolumeCredential) and
+	// pass them to the driver as CSI secrets. Set by the control plane from the
+	// administrator's credential profile for the volume's driver.
+	BrokeredCredentials bool `protobuf:"varint,5,opt,name=brokered_credentials,json=brokeredCredentials,proto3" json:"brokered_credentials,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ExternalVolumeSource) Reset() {
@@ -1561,6 +1566,13 @@ func (x *ExternalVolumeSource) GetPublishContext() map[string]string {
 		return x.PublishContext
 	}
 	return nil
+}
+
+func (x *ExternalVolumeSource) GetBrokeredCredentials() bool {
+	if x != nil {
+		return x.BrokeredCredentials
+	}
+	return false
 }
 
 type ImageVolumeSource struct {
@@ -3336,13 +3348,14 @@ const file_atelet_proto_rawDesc = "" +
 	"containers\x18\x01 \x03(\v2\x11.atelet.ContainerR\n" +
 	"containers\x12(\n" +
 	"\avolumes\x18\x02 \x03(\v2\x0e.atelet.VolumeR\avolumes\"\x12\n" +
-	"\x10DurableDirVolume\"\x9b\x03\n" +
+	"\x10DurableDirVolume\"\xce\x03\n" +
 	"\x14ExternalVolumeSource\x12*\n" +
 	"\x11storage_volume_id\x18\x01 \x01(\tR\x0fstorageVolumeId\x12\x1f\n" +
 	"\vvolume_type\x18\x02 \x01(\tR\n" +
 	"volumeType\x12V\n" +
 	"\x0evolume_context\x18\x03 \x03(\v2/.atelet.ExternalVolumeSource.VolumeContextEntryR\rvolumeContext\x12Y\n" +
-	"\x0fpublish_context\x18\x04 \x03(\v20.atelet.ExternalVolumeSource.PublishContextEntryR\x0epublishContext\x1a@\n" +
+	"\x0fpublish_context\x18\x04 \x03(\v20.atelet.ExternalVolumeSource.PublishContextEntryR\x0epublishContext\x121\n" +
+	"\x14brokered_credentials\x18\x05 \x01(\bR\x13brokeredCredentials\x1a@\n" +
 	"\x12VolumeContextEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +

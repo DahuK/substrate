@@ -411,6 +411,7 @@ func TestDebugRedactFieldsArePinned(t *testing.T) {
 	want := map[string]bool{
 		"ateapi.EnvVar.value":                            true,
 		"ateapi.MintActorJWTResponse.actor_jwt":          true,
+		"ateapi.MintVolumeCredentialResponse.secrets":    true,
 		"atelet.EnvEntry.value":                          true,
 		"ateom.ContainerSpec.env":                        true,
 		"credprovider.FetchSecretResponse.opaque_bytes":  true,
@@ -444,10 +445,11 @@ var secretLikeName = regexp.MustCompile(`(?i)jwt|token|secret|passw|credential|p
 // credential goes in notSecret with the reason.
 func TestSecretLikeFieldsAreLabeled(t *testing.T) {
 	notSecret := map[string]string{
-		"page_token":                             "opaque list cursor",
-		"next_page_token":                        "opaque list cursor",
-		"ateapi.CredentialHeader.credential_uri": "ate-secret:// reference to a credential, not the value",
-		"ateapi.CredentialHeader.actor_jwt":      "ActorJWTSource: audiences and lifetime for minting, not a token",
+		"page_token":                                       "opaque list cursor",
+		"next_page_token":                                  "opaque list cursor",
+		"ateapi.CredentialHeader.credential_uri":           "ate-secret:// reference to a credential, not the value",
+		"ateapi.CredentialHeader.actor_jwt":                "ActorJWTSource: audiences and lifetime for minting, not a token",
+		"atelet.ExternalVolumeSource.brokered_credentials": "flag asking atelet to mint credentials, not a credential",
 	}
 	forEachField(func(fd protoreflect.FieldDescriptor) {
 		if !secretLikeName.MatchString(string(fd.Name())) || isDebugRedact(fd) {

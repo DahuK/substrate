@@ -98,6 +98,8 @@ var (
 
 	snapshotPluginSocket = pflag.String("snapshot-plugin-socket", "/run/snapshot-plugin/control.sock", "Unix socket of the control snapshot plugin that external snapshots are deleted and copied through.")
 
+	volumeCredentialConfigFile = pflag.String("volume-credential-config", "", "JSON file of per-CSI-driver credential profiles. Volumes of a listed driver are mounted with short-lived credentials scoped to the volume, which atelet mints through WorkerService.MintVolumeCredential. Empty disables brokered volume credentials.")
+
 	templateResyncInterval = pflag.Duration("template-resync-interval", 20*time.Second, fmt.Sprintf("Interval between actor template resyncs. Must be at least %s.", minResyncInterval))
 
 	showVersion  = pflag.Bool("version", false, "Print version and exit.")
@@ -302,6 +304,14 @@ func main() {
 		actorIDCAPool,
 	)
 
+	volumeCredentials, err := loadVolumeCredentialBroker(*volumeCredentialConfigFile)
+	if err != nil {
+		serverboot.Fatal(ctx, "Invalid --volume-credential-config", err)
+	}
+	if volumeCredentials != nil {
+		controlSrv.SetBrokeredVolumeDrivers(volumeCredentials)
+	}
+
 	// Drive stored ActorTemplates through the golden actor flow.
 	templateReconciler := controlapi.NewActorTemplateReconciler(persistence, controlSrv, *templateResyncInterval)
 	templateReconciler.Start(shutdownCtx)
@@ -345,7 +355,11 @@ func main() {
 	)
 	reflection.Register(mux)
 	ateapipb.RegisterControlServer(mux, controlSrv)
-	ateapipb.RegisterWorkerServiceServer(mux, workerservice.New(persistence, controlSrv, ateletSPIFFEID, actorIDCAPool))
+	workerSrv := workerservice.New(persistence, controlSrv, ateletSPIFFEID, actorIDCAPool)
+	if volumeCredentials != nil {
+		workerSrv.SetVolumeCredentials(volumeCredentials)
+	}
+	ateapipb.RegisterWorkerServiceServer(mux, workerSrv)
 
 	readiness := &serverboot.Readiness{}
 	go serverboot.StartMetricsServer(ctx, serverboot.MetricsServerOptions{

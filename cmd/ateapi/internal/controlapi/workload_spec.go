@@ -202,6 +202,19 @@ func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapi
 	return nil
 }
 
+// markBrokeredVolumes tells atelet which external volumes to mount with
+// credentials minted through WorkerService.MintVolumeCredential.
+func markBrokeredVolumes(spec *ateletpb.WorkloadSpec, brokered BrokeredVolumeDrivers) {
+	if brokered == nil {
+		return
+	}
+	for _, vol := range spec.GetVolumes() {
+		if ext := vol.GetExternal(); ext != nil && brokered.Brokered(ext.GetVolumeType()) {
+			ext.BrokeredCredentials = true
+		}
+	}
+}
+
 func isVolumeMounted(volumeName string, template *ateapipb.ActorTemplate) bool {
 	for _, ctr := range template.GetContainers() {
 		for _, mount := range ctr.GetVolumeMounts() {

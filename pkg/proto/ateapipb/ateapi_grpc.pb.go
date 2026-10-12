@@ -1828,6 +1828,7 @@ const (
 	WorkerService_RegisterWorker_FullMethodName            = "/ateapi.WorkerService/RegisterWorker"
 	WorkerService_MintAteomActorCertificate_FullMethodName = "/ateapi.WorkerService/MintAteomActorCertificate"
 	WorkerService_RequestActorSuspend_FullMethodName       = "/ateapi.WorkerService/RequestActorSuspend"
+	WorkerService_MintVolumeCredential_FullMethodName      = "/ateapi.WorkerService/MintVolumeCredential"
 )
 
 // WorkerServiceClient is the client API for WorkerService service.
@@ -1875,6 +1876,18 @@ type WorkerServiceClient interface {
 	// retries a suspend it had already been granted therefore sees a failure
 	// rather than a repeat of its success.
 	RequestActorSuspend(ctx context.Context, in *RequestActorSuspendRequest, opts ...grpc.CallOption) (*RequestActorSuspendResponse, error)
+	// MintVolumeCredential issues short-lived storage credentials for one
+	// external volume of an Actor that the calling Worker hosts, so the node
+	// mounts that volume with access scoped to it rather than with a standing
+	// node or driver identity.
+	//
+	// atelet calls this with its own client certificate before it mounts the
+	// volume, and again before the credentials expire. The control plane serves
+	// it only for an Actor assigned to that Worker, only for a volume recorded on
+	// the Actor, and only when an administrator configured a credential profile
+	// for the volume's driver. The scope comes from the volume's recorded
+	// provisioning context, never from the request.
+	MintVolumeCredential(ctx context.Context, in *MintVolumeCredentialRequest, opts ...grpc.CallOption) (*MintVolumeCredentialResponse, error)
 }
 
 type workerServiceClient struct {
@@ -1909,6 +1922,16 @@ func (c *workerServiceClient) RequestActorSuspend(ctx context.Context, in *Reque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RequestActorSuspendResponse)
 	err := c.cc.Invoke(ctx, WorkerService_RequestActorSuspend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *workerServiceClient) MintVolumeCredential(ctx context.Context, in *MintVolumeCredentialRequest, opts ...grpc.CallOption) (*MintVolumeCredentialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MintVolumeCredentialResponse)
+	err := c.cc.Invoke(ctx, WorkerService_MintVolumeCredential_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1960,6 +1983,18 @@ type WorkerServiceServer interface {
 	// retries a suspend it had already been granted therefore sees a failure
 	// rather than a repeat of its success.
 	RequestActorSuspend(context.Context, *RequestActorSuspendRequest) (*RequestActorSuspendResponse, error)
+	// MintVolumeCredential issues short-lived storage credentials for one
+	// external volume of an Actor that the calling Worker hosts, so the node
+	// mounts that volume with access scoped to it rather than with a standing
+	// node or driver identity.
+	//
+	// atelet calls this with its own client certificate before it mounts the
+	// volume, and again before the credentials expire. The control plane serves
+	// it only for an Actor assigned to that Worker, only for a volume recorded on
+	// the Actor, and only when an administrator configured a credential profile
+	// for the volume's driver. The scope comes from the volume's recorded
+	// provisioning context, never from the request.
+	MintVolumeCredential(context.Context, *MintVolumeCredentialRequest) (*MintVolumeCredentialResponse, error)
 	mustEmbedUnimplementedWorkerServiceServer()
 }
 
@@ -1978,6 +2013,9 @@ func (UnimplementedWorkerServiceServer) MintAteomActorCertificate(context.Contex
 }
 func (UnimplementedWorkerServiceServer) RequestActorSuspend(context.Context, *RequestActorSuspendRequest) (*RequestActorSuspendResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RequestActorSuspend not implemented")
+}
+func (UnimplementedWorkerServiceServer) MintVolumeCredential(context.Context, *MintVolumeCredentialRequest) (*MintVolumeCredentialResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MintVolumeCredential not implemented")
 }
 func (UnimplementedWorkerServiceServer) mustEmbedUnimplementedWorkerServiceServer() {}
 func (UnimplementedWorkerServiceServer) testEmbeddedByValue()                       {}
@@ -2054,6 +2092,24 @@ func _WorkerService_RequestActorSuspend_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkerService_MintVolumeCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MintVolumeCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkerServiceServer).MintVolumeCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkerService_MintVolumeCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkerServiceServer).MintVolumeCredential(ctx, req.(*MintVolumeCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WorkerService_ServiceDesc is the grpc.ServiceDesc for WorkerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2072,6 +2128,10 @@ var WorkerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RequestActorSuspend",
 			Handler:    _WorkerService_RequestActorSuspend_Handler,
+		},
+		{
+			MethodName: "MintVolumeCredential",
+			Handler:    _WorkerService_MintVolumeCredential_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

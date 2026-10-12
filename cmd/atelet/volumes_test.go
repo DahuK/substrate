@@ -46,6 +46,8 @@ type fakeWorkerPlugin struct {
 	unmountErrs map[string]error
 	unmounted   []string
 	mountCalls  []mountCall
+	// secrets records MountVolumeRequest.Secrets per mount call.
+	secrets []map[string]string
 }
 
 func (f *fakeWorkerPlugin) MountVolume(ctx context.Context, req volume.MountVolumeRequest) error {
@@ -54,6 +56,7 @@ func (f *fakeWorkerPlugin) MountVolume(ctx context.Context, req volume.MountVolu
 		targetPath: req.TargetPath,
 		attributes: req.VolumeContext,
 	})
+	f.secrets = append(f.secrets, req.Secrets)
 	if f.mountErrs != nil {
 		if err, ok := f.mountErrs[req.VolumeID]; ok {
 			return err
@@ -212,7 +215,7 @@ func TestMountExternalVolumes(t *testing.T) {
 			},
 		}
 
-		err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1, durableVol, extVol2})
+		err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1, durableVol, extVol2})
 		if err != nil {
 			t.Fatalf("mountExternalVolumes failed unexpectedly: %v", err)
 		}
@@ -261,7 +264,7 @@ func TestMountExternalVolumes(t *testing.T) {
 			},
 		}
 
-		err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1})
+		err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1})
 		if err != nil {
 			t.Fatalf("mountExternalVolumes with existing directory failed: %v", err)
 		}
@@ -287,7 +290,7 @@ func TestMountExternalVolumes(t *testing.T) {
 			volumePlugins: map[string]volume.VolumePluginWorkerPlane{},
 		}
 
-		err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{unknownVol})
+		err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{unknownVol})
 		if err == nil {
 			t.Fatal("expected mountExternalVolumes to fail with unknown plugin, got nil")
 		}
@@ -308,7 +311,7 @@ func TestMountExternalVolumes(t *testing.T) {
 			},
 		}
 
-		err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1})
+		err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1})
 		if err == nil {
 			t.Fatal("expected mountExternalVolumes to fail, got nil")
 		}
@@ -329,7 +332,7 @@ func TestMountExternalVolumes(t *testing.T) {
 			},
 		}
 
-		err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1, extVol2})
+		err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1, extVol2})
 		if err == nil {
 			t.Fatal("expected mountExternalVolumes to fail, got nil")
 		}
@@ -355,7 +358,7 @@ func TestMountExternalVolumes(t *testing.T) {
 			},
 		}
 
-		err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1, extVol2})
+		err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1, extVol2})
 		if err == nil {
 			t.Fatal("expected mountExternalVolumes to fail when vol-2 fails, got nil")
 		}
@@ -421,7 +424,7 @@ func TestVolumeHostDirectoryCleanup(t *testing.T) {
 			},
 		}
 
-		if err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1, extVol2}); err != nil {
+		if err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1, extVol2}); err != nil {
 			t.Fatalf("mountExternalVolumes failed: %v", err)
 		}
 
@@ -456,7 +459,7 @@ func TestVolumeHostDirectoryCleanup(t *testing.T) {
 		}
 
 		// Mount and then unmount external volumes.
-		if err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1, extVol2}); err != nil {
+		if err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1, extVol2}); err != nil {
 			t.Fatalf("mountExternalVolumes failed: %v", err)
 		}
 		if err := s.unmountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1, extVol2}); err != nil {
@@ -503,7 +506,7 @@ func TestVolumeHostDirectoryCleanup(t *testing.T) {
 			},
 		}
 
-		if err := s.mountExternalVolumes(ctx, actorUID, []*ateletpb.Volume{extVol1}); err != nil {
+		if err := s.mountExternalVolumes(ctx, volumeOwner{actorUID: actorUID}, []*ateletpb.Volume{extVol1}); err != nil {
 			t.Fatalf("mountExternalVolumes failed: %v", err)
 		}
 
