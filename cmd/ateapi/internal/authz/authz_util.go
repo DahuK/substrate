@@ -57,6 +57,11 @@ const (
 	RelationCanGetAccessPolicy     = "can_get_access_policy"
 	RelationCanUpdateAccessPolicy  = "can_update_access_policy"
 	RelationCanDeleteAccessPolicy  = "can_delete_access_policy"
+	RelationCanMount               = "can_mount"
+
+	RelationCanImportExternalVolume = "can_import_external_volume"
+	RelationCanCreateExternalVolume = "can_create_external_volume"
+	RelationCanListExternalVolumes  = "can_list_external_volumes"
 
 	// maxTuplesPerWrite is OpenFGA's default maximum number of tuples allowed in a single Write request.
 	maxTuplesPerWrite = 100
@@ -108,6 +113,12 @@ func ActorObject(atespace, name string) string {
 // ActorTemplateObject formats an actor template as an OpenFGA object string.
 func ActorTemplateObject(atespace, name string) string {
 	return "actor_template:" + atespacedID(atespace, name)
+}
+
+// ExternalVolumeObject formats an atespace-scoped external volume as an
+// OpenFGA object string.
+func ExternalVolumeObject(atespace, name string) string {
+	return "external_volume:" + atespacedID(atespace, name)
 }
 
 // atespacedID formats the object ID of an atespaced resource as

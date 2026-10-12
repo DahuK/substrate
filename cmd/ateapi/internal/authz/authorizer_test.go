@@ -70,6 +70,14 @@ func TestContextualTuples(t *testing.T) {
 			},
 		},
 		{
+			name:   "external volume",
+			object: ExternalVolumeObject("team-a", "corpus"),
+			want: []*openfgav1.TupleKey{
+				parentAtespace("atespace:team-a", "external_volume:team-a/corpus"),
+				parentGlobal("atespace:team-a"),
+			},
+		},
+		{
 			name:   "actor without an atespace separator has no parent",
 			object: "actor:runner",
 			want:   nil,

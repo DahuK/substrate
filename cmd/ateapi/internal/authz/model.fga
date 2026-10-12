@@ -43,6 +43,12 @@ type global
     # Listing across all atespaces (List RPCs with an empty atespace).
     define can_list_actors: viewer
     define can_list_actor_templates: viewer
+    define can_list_external_volumes: viewer
+
+    # Register a storage volume that already exists by its volume ID. The ID
+    # can name any volume the driver can reach, including another tenant's, so
+    # this stays with the global owner rather than the atespace.
+    define can_import_external_volume: owner
 
     # --- Policy Governance ---
     define can_create_access_policy: owner
@@ -70,6 +76,8 @@ type atespace
     define can_create_actor_template: editor
     define can_list_actors: viewer
     define can_list_actor_templates: viewer
+    define can_create_external_volume: editor
+    define can_list_external_volumes: viewer
     define can_get: viewer
     define can_delete: owner
 
@@ -110,3 +118,17 @@ type actor
     # Lifecycle Operations
     define can_suspend: [user] or editor from parent_atespace
     define can_revert: [user] or editor from parent_atespace
+
+# An atespace-scoped external volume, identified as
+# external_volume:<atespace>/<name>; its lifetime is independent of any actor.
+type external_volume
+  relations
+    define parent_atespace: [atespace]
+
+    define can_get: viewer from parent_atespace
+    # Bind the volume into an actor of the same atespace (CreateActor).
+    define can_mount: editor from parent_atespace
+    define can_update: editor from parent_atespace
+    # Deleting the record deletes the storage volume, and so does a
+    # last-actor delete trigger once the volume's last actor is deleted.
+    define can_delete: owner from parent_atespace

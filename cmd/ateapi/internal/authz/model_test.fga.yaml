@@ -59,6 +59,11 @@ tuples:
     relation: scheduled_worker
     object: actor:runner-1
 
+  # External volume in atespace:space-1
+  - user: atespace:space-1
+    relation: parent_atespace
+    object: external_volume:corpus
+
   # Machine identities & ingress permissions
   - user: user:sa-router
     relation: can_resume
@@ -296,3 +301,77 @@ tests:
         object: actor:runner-1
         assertions:
           can_mint_ateom_actor_credential: false
+
+  - name: 6. External Volumes (Inherited from Atespace; Import Reserved to Global Owners)
+    check:
+      - user: user:carol # Global owner
+        object: global:root
+        assertions:
+          can_import_external_volume: true
+          can_list_external_volumes: true
+      - user: user:alice # Atespace owner cannot import a volume ID
+        object: global:root
+        assertions:
+          can_import_external_volume: false
+      - user: user:frank # Global viewer lists, cannot import
+        object: global:root
+        assertions:
+          can_import_external_volume: false
+          can_list_external_volumes: true
+      - user: user:bob # Editor creates (provisions) and lists
+        object: atespace:space-1
+        assertions:
+          can_create_external_volume: true
+          can_list_external_volumes: true
+      - user: user:dave # Viewer lists, cannot create
+        object: atespace:space-1
+        assertions:
+          can_create_external_volume: false
+          can_list_external_volumes: true
+      - user: user:eve # External
+        object: atespace:space-1
+        assertions:
+          can_create_external_volume: false
+          can_list_external_volumes: false
+      - user: user:alice # Owner
+        object: external_volume:corpus
+        assertions:
+          can_get: true
+          can_mount: true
+          can_update: true
+          can_delete: true
+      - user: user:carol # Global owner via parent_global
+        object: external_volume:corpus
+        assertions:
+          can_mount: true
+          can_delete: true
+      - user: user:bob # Editor mounts and updates, cannot delete the storage
+        object: external_volume:corpus
+        assertions:
+          can_get: true
+          can_mount: true
+          can_update: true
+          can_delete: false
+      - user: user:dave # Viewer
+        object: external_volume:corpus
+        assertions:
+          can_get: true
+          can_mount: false
+          can_update: false
+          can_delete: false
+      - user: user:frank # Global viewer
+        object: external_volume:corpus
+        assertions:
+          can_get: true
+          can_mount: false
+      - user: user:sa-router # Router may resume actors, not bind volumes
+        object: external_volume:corpus
+        assertions:
+          can_mount: false
+      - user: user:eve # External
+        object: external_volume:corpus
+        assertions:
+          can_get: false
+          can_mount: false
+          can_update: false
+          can_delete: false

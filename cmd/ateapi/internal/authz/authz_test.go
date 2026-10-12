@@ -498,9 +498,34 @@ func TestAuthorizerAndPolicyManager_RuntimeChecks(t *testing.T) {
 	}
 
 	// 5. Grant bob direct editor access on atespace:team-x.
+	vol := ExternalVolumeObject("team-x", "corpus")
+	if err := authorizer.Check(bobCtx, RelationCanMount, vol); apierror.Code(err) != codes.PermissionDenied {
+		t.Errorf("expected bob denied can_mount on %s before the grant, got %v", vol, err)
+	}
 	writeTestTuple(t, ctx, pool, policyManager, "bob", "editor", AtespaceObject("team-x"))
 	if err := authorizer.Check(bobCtx, RelationCanGet, AtespaceObject("team-x")); err != nil {
 		t.Errorf("expected bob allowed can_get on team-x, got %v", err)
+	}
+	// 5b. An external volume inherits from its atespace through contextual
+	// tuples: an editor can create and mount but not delete it, nor import a
+	// volume ID, and the grant does not reach another atespace.
+	if err := authorizer.Check(bobCtx, RelationCanCreateExternalVolume, AtespaceObject("team-x")); err != nil {
+		t.Errorf("expected atespace editor bob allowed can_create_external_volume, got %v", err)
+	}
+	if err := authorizer.Check(bobCtx, RelationCanMount, vol); err != nil {
+		t.Errorf("expected atespace editor bob allowed can_mount on %s, got %v", vol, err)
+	}
+	for _, c := range []struct{ relation, object string }{
+		{RelationCanDelete, vol},
+		{RelationCanImportExternalVolume, GlobalRootObject},
+		{RelationCanMount, ExternalVolumeObject("team-y", "corpus")},
+	} {
+		if err := authorizer.Check(bobCtx, c.relation, c.object); apierror.Code(err) != codes.PermissionDenied {
+			t.Errorf("expected bob denied %s on %s, got %v", c.relation, c.object, err)
+		}
+	}
+	if err := authorizer.Check(aliceCtx, RelationCanImportExternalVolume, GlobalRootObject); err != nil {
+		t.Errorf("expected global owner alice allowed can_import_external_volume, got %v", err)
 	}
 
 	// 6. PolicyManager.DeleteAtespacePolicies requires a transaction, and
@@ -557,5 +582,11 @@ func TestAtespacedObjects_NoCollision(t *testing.T) {
 	}
 	if o1, o2 := ActorObject("a", "b"), ActorTemplateObject("a", "b"); o1 == o2 {
 		t.Errorf("ActorObject and ActorTemplateObject collided on %q", o1)
+	}
+	if o1, o2 := ExternalVolumeObject("a/b", "c"), ExternalVolumeObject("a", "b/c"); o1 == o2 {
+		t.Errorf("ExternalVolumeObject (%q, %q) and (%q, %q) collided on %q", "a/b", "c", "a", "b/c", o1)
+	}
+	if o1, o2 := ActorObject("a", "b"), ExternalVolumeObject("a", "b"); o1 == o2 {
+		t.Errorf("ActorObject and ExternalVolumeObject collided on %q", o1)
 	}
 }
